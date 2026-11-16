@@ -1,0 +1,41 @@
+.o_ic_demo_dashboard {
+    padding: 1rem 1.5rem;
+}
+.o_ic_demo_dashboard .o_icd_header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+}
+.o_ic_demo_dashboard .o_icd_grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 1rem;
+}
+.o_ic_demo_dashboard .o_icd_tile {
+    background: var(--o-view-background-color, #fff);
+    border: 1px solid var(--o-color-border, #dee2e6);
+    border-radius: 0.5rem;
+    padding: 1rem 1.25rem;
+}
+.o_ic_demo_dashboard .o_icd_tile_label {
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--o-color-text-muted, #6c757d);
+    margin-bottom: 0.25rem;
+}
+.o_ic_demo_dashboard .o_icd_tile_value {
+    font-size: 1.75rem;
+    font-weight: 600;
+    line-height: 1.1;
+}
+.o_ic_demo_dashboard .o_icd_tile_unit {
+    font-size: 0.9rem;
+    font-weight: 400;
+    color: var(--o-color-text-muted, #6c757d);
+    margin-left: 0.3rem;
+}
+.o_ic_demo_dashboard .o_icd_events {
+    margin-top: 1.5rem;
+}

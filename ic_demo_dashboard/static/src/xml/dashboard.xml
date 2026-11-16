@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+
+    <t t-name="ic_demo_dashboard.Dashboard">
+        <div class="o_ic_demo_dashboard">
+            <div class="o_icd_header">
+                <h2 t-if="this.state.snapshot">
+                    <t t-esc="this.state.snapshot.company.name"/>
+                    <small class="text-muted"> — live last 30 days</small>
+                </h2>
+                <div class="o_icd_meta" t-if="this.state.snapshot">
+                    <span class="badge rounded-pill text-bg-success">
+                        <i class="fa fa-bolt"/> live · <t t-esc="this.state.eventCount"/> event(s)
+                    </span>
+                    <span class="text-muted ms-2" t-if="this.state.lastEventAt">
+                        last: <t t-esc="this.state.lastEventAt"/>
+                    </span>
+                </div>
+            </div>
+
+            <div class="o_icd_loading text-center p-5" t-if="this.state.loading">
+                <i class="fa fa-spinner fa-pulse fa-2x"/>
+            </div>
+
+            <div class="o_icd_grid" t-if="!this.state.loading and this.state.snapshot">
+                <div class="o_icd_tile">
+                    <div class="o_icd_tile_label">Confirmed sales value</div>
+                    <div class="o_icd_tile_value">
+                        <t t-esc="this.formatAmount(this.state.snapshot.sales_confirmed)"/>
+                        <span class="o_icd_tile_unit"><t t-esc="this.state.snapshot.company.currency"/></span>
+                    </div>
+                </div>
+                <div class="o_icd_tile">
+                    <div class="o_icd_tile_label">Confirmed sales count</div>
+                    <div class="o_icd_tile_value">
+                        <t t-esc="this.formatAmount(this.state.snapshot.sales_count)"/>
+                    </div>
+                </div>
+                <div class="o_icd_tile">
+                    <div class="o_icd_tile_label">Posted revenue</div>
+                    <div class="o_icd_tile_value">
+                        <t t-esc="this.formatAmount(this.state.snapshot.revenue_posted)"/>
+                        <span class="o_icd_tile_unit"><t t-esc="this.state.snapshot.company.currency"/></span>
+                    </div>
+                </div>
+                <div class="o_icd_tile">
+                    <div class="o_icd_tile_label">Posted invoices</div>
+                    <div class="o_icd_tile_value">
+                        <t t-esc="this.formatAmount(this.state.snapshot.invoices_posted)"/>
+                    </div>
+                </div>
+            </div>
+
+            <div class="o_icd_events" t-if="!this.state.loading and this.state.events.length">
+                <h4>Recent events</h4>
+                <table class="table table-sm">
+                    <thead>
+                        <tr>
+                            <th>Time</th><th>Model</th><th>Action</th>
+                            <th>Name</th><th>Partner</th><th class="text-end">Amount</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr t-foreach="this.state.events" t-as="ev" t-key="ev_index">
+                            <td class="text-muted" t-esc="ev.at"/>
+                            <td><code t-esc="ev.model"/></td>
+                            <td><t t-esc="ev.action"/></td>
+                            <td t-esc="ev.name"/>
+                            <td t-esc="ev.partner"/>
+                            <td class="text-end">
+                                <t t-esc="this.formatAmount(ev.amount)"/>
+                                <small class="text-muted ms-1" t-esc="ev.currency"/>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </t>
+
+</templates>

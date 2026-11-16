@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="action_ic_demo_dashboard" model="ir.actions.client">
+        <field name="name">IC Demo — Live KPI</field>
+        <field name="tag">ic_demo_dashboard</field>
+    </record>
+
+    <menuitem id="menu_ic_demo_root"
+              name="IC Demo"
+              sequence="5"
+              web_icon="ic_demo_dashboard,static/description/icon.png"/>
+
+    <menuitem id="menu_ic_demo_dashboard"
+              name="Live KPI Dashboard"
+              parent="menu_ic_demo_root"
+              action="action_ic_demo_dashboard"
+              sequence="10"/>
+</odoo>

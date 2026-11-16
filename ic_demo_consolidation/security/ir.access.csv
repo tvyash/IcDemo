@@ -1,0 +1,3 @@
+id,name,model_id,group_id/id,operation,domain
+access_ic_demo_consolidation_line_user,ic_demo_consolidation_line_user,ic.demo.consolidation.line,account.group_account_readonly,r,
+access_ic_demo_consolidation_line_manager,ic_demo_consolidation_line_manager,ic.demo.consolidation.line,account.group_account_manager,r,
