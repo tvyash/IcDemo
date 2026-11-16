@@ -1,0 +1,50 @@
+[options]
+; Native / host-run Odoo 20 for the ic_demo project.
+; Paths are absolute — the project is run from a venv on the host, not a container.
+
+; Modules live at the project root (ic_demo_dashboard/, ic_demo_consolidation/),
+; so this project's own path IS the directory to point at. addons/oca and
+; addons/custom are kept for future vendored modules.
+addons_path = /home/techvoot/work_space/20/base/enterprise,/home/techvoot/work_space/20/base/odoo/addons,/home/techvoot/work_space/20/projects/ic_demo,/home/techvoot/work_space/20/projects/ic_demo/addons/oca,/home/techvoot/work_space/20/projects/ic_demo/addons/custom
+data_dir = /home/techvoot/work_space/20/projects/ic_demo/var/filestore
+
+; --- Database (host Postgres 18) -------------------------------------------
+db_host = localhost
+db_port = 5432
+db_user = ic_demo
+db_password = ic_demo
+; 150 is enough headroom for the C4 100-subscriber load harness on the
+; single-process ThreadedServer. Cloud profile pins this to ~8 per pod.
+db_maxconn = 150
+; Odoo 20 native read-replica route — point at the same host for local dev.
+; In the cloud this will become the HAProxy replica listener.
+db_replica_host = localhost
+db_replica_port = 5432
+
+; --- HTTP + Bus ------------------------------------------------------------
+xmlrpc_port = 8069
+proxy_mode = True
+gevent_port = 8072
+
+; --- Workers --------------------------------------------------------------
+; Local demo runs in single-process ThreadedServer mode so one port (8069)
+; serves both HTTP and the websocket handshake — no reverse proxy needed.
+; The cloud profile (C5 k3s) overrides this to workers >= 4 and lets the
+; ingress route /websocket to the gevent service on 8072.
+workers = 0
+max_cron_threads = 2
+
+; --- Memory / time limits --------------------------------------------------
+limit_memory_soft = 671088640
+limit_memory_hard = 1073741824
+limit_time_cpu = 120
+limit_time_real = 240
+limit_time_real_cron = -1
+limit_request = 8192
+
+; --- Logging ---------------------------------------------------------------
+log_level = info
+logfile = /home/techvoot/work_space/20/projects/ic_demo/var/log/odoo.log
+
+; --- Dev niceties (disable on cloud) ---------------------------------------
+list_db = True

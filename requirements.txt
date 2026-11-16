@@ -1,0 +1,8 @@
+# Project extras that coexist cleanly inside the Odoo venv.
+# Anything with deps that clash with Odoo's own pins (gevent, Werkzeug, Flask)
+# lives in tools/requirements.txt and installs into a separate .venv-tools.
+
+# --- Seeding 10M+ transactions (C1) ----------------------------------------
+psycopg[binary]==3.2.3   # COPY-based bulk insert, ~10x faster than psycopg2 at scale
+faker==30.8.2            # realistic partners / products / addresses
+tqdm==4.66.5             # seed progress bar

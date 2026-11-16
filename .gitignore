@@ -1,0 +1,38 @@
+.env
+*.pyc
+__pycache__/
+.idea/
+.vscode/
+.DS_Store
+
+# Native dev artefacts
+.venv/
+.venv-tools/
+var/
+*.log
+
+# Test / seed artefacts
+*.sql
+*.dump
+seed_output/
+
+# Addons pulled from OCA (we'll vendor via submodules later)
+addons/oca/*
+!addons/oca/.gitkeep
+
+# Local-only reference clone of the git repo (we're in it)
+IcDemo/
+
+# Downloaded binaries (etcd etc.) land here
+tools/bin/
+
+# Host-specific copies of the *.example templates. Each machine keeps its
+# own working copy of these files (copy from the .example, edit the paths
+# for your host, commit NOTHING). The server team's VPS configs aren't
+# clobbered when the repo is pulled.
+/odoo/odoo.conf
+/odoo/odoo.perf.conf
+/scripts/setup.sh
+/scripts/run.sh
+/tools/seed/c1_bootstrap.py
+/tools/seed/c1_bulk.py

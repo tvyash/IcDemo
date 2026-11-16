@@ -1,0 +1,16 @@
+---
+# RWX filestore shared across odoo-web, odoo-bus, and odoo-cron.
+# The default k3s "local-path" provisioner is RWO; swap storageClassName
+# for a RWX provisioner (nfs-subdir-external-provisioner against MinIO,
+# Longhorn, or OpenEBS) before applying.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: odoo-filestore
+  namespace: ic-demo
+spec:
+  accessModes: [ReadWriteMany]
+  resources:
+    requests:
+      storage: 50Gi
+  storageClassName: nfs-client

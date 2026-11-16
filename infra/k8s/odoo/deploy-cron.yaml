@@ -1,0 +1,43 @@
+---
+# Dedicated cron worker. Stays at 1 replica — running scheduled jobs on
+# N>1 pods risks duplicate execution unless you add a global lock.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: odoo-cron
+  namespace: ic-demo
+  labels: {app: odoo, component: cron}
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector:
+    matchLabels: {app: odoo, component: cron}
+  template:
+    metadata:
+      labels: {app: odoo, component: cron}
+    spec:
+      securityContext: {fsGroup: 101}
+      containers:
+        - name: odoo
+          image: odoo:20.0
+          command: ["/usr/bin/odoo"]
+          args:
+            - "-c"
+            - "/etc/odoo/odoo.conf"
+            - "--workers=0"
+            - "--max-cron-threads=2"
+            - "--no-http"
+          env:
+            - name: PGPASSWORD
+              valueFrom: {secretKeyRef: {name: odoo-secret, key: db_password}}
+          resources:
+            requests: {cpu: "500m", memory: "2Gi"}
+            limits:   {cpu: "2", memory: "4Gi"}
+          volumeMounts:
+            - {name: odoo-conf, mountPath: /etc/odoo}
+            - {name: filestore, mountPath: /var/lib/odoo}
+      volumes:
+        - name: odoo-conf
+          configMap: {name: odoo-conf}
+        - name: filestore
+          persistentVolumeClaim: {claimName: odoo-filestore}

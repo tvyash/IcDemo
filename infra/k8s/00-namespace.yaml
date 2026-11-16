@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ic-demo
+  labels:
+    app.kubernetes.io/part-of: ic-demo
+    pod-security.kubernetes.io/enforce: baseline

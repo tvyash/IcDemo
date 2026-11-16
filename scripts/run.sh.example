@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# Launch Odoo 20 from the local venv against the project config.
+#
+# Extra args are forwarded to odoo-bin, so:
+#   ./scripts/run.sh                       # normal boot
+#   ./scripts/run.sh -d demo -i base       # init a DB called 'demo' with base
+#   ./scripts/run.sh --shell -d demo       # drop into the odoo shell
+#   ./scripts/run.sh --dev=reload,qweb -d demo
+
+set -euo pipefail
+
+PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+ODOO_BIN="/home/techvoot/work_space/20/base/odoo/odoo-bin"
+VENV="$PROJECT_ROOT/.venv"
+CONF="$PROJECT_ROOT/odoo/odoo.conf"
+
+if [ ! -x "$VENV/bin/python" ]; then
+    echo "venv missing — run scripts/setup.sh first" >&2
+    exit 1
+fi
+
+# shellcheck disable=SC1091
+source "$VENV/bin/activate"
+exec python "$ODOO_BIN" -c "$CONF" "$@"

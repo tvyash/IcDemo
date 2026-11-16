@@ -1,0 +1,10 @@
+# Isolated venv (.venv-tools) for ops / load-test tooling.
+# These pull in gevent/Flask/Werkzeug at versions that conflict with Odoo's
+# hard pins, so they CANNOT coexist in the Odoo venv.
+
+# --- C4: concurrent-user load harness --------------------------------------
+locust==2.32.4
+websocket-client==1.8.0
+
+# --- C2: Patroni CLI + etcd client -----------------------------------------
+patroni[etcd3]==4.0.4

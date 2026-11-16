@@ -1,0 +1,204 @@
+"""C1 bulk COPY — generates N account_move + 2N account_move_line rows
+across the 20 companies prepared by `c1_bootstrap.py`.
+
+Each move is a balanced DR Receivable / CR Revenue pair with a random posting
+date in the last 24 months and a random partner from the pool. Posting state
+is 'posted' so reporting counts it.
+
+Run from the project root with the Odoo venv (needs psycopg available there):
+
+    .venv/bin/python tools/seed/c1_bulk.py --moves 5000000
+
+Progress logs each chunk; one commit per chunk.
+
+Scale guide (5M moves = 10M AML rows):
+    --moves  10000   → ~20k AMLs      (smoke, ~1s)
+    --moves  500000  → ~1M AMLs       (~15s)
+    --moves 2500000  → ~5M AMLs       (~75s)
+    --moves 5000000  → ~10M AMLs      (~150s)
+"""
+
+from __future__ import annotations
+
+import argparse
+import datetime as dt
+import io
+import json
+import logging
+import os
+import pathlib
+import random
+import sys
+import time
+
+PROJECT = pathlib.Path(__file__).resolve().parents[2]
+ODOO_SRC = pathlib.Path("/home/techvoot/work_space/20/base/odoo")
+sys.path.insert(0, str(ODOO_SRC))
+os.environ.setdefault("ODOO_RC", str(PROJECT / "odoo" / "odoo.conf"))
+
+import odoo  # noqa: E402
+import odoo.init  # noqa: E402 — side-effect: wires up `odoo.SUPERUSER_ID` etc.
+from odoo.modules.registry import Registry  # noqa: E402
+from odoo.tools import config  # noqa: E402
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+log = logging.getLogger("c1_bulk")
+
+
+def main():
+    p = argparse.ArgumentParser()
+    p.add_argument("--moves", type=int, default=5_000_000, help="total moves across all companies")
+    p.add_argument("--chunk", type=int, default=50_000, help="moves per transaction/chunk")
+    p.add_argument("--database", default="ic_demo")
+    p.add_argument("--refs", default=str(PROJECT / "var" / "seed_refs.json"))
+    p.add_argument("--amount-min", type=float, default=50.0)
+    p.add_argument("--amount-max", type=float, default=5000.0)
+    args = p.parse_args()
+
+    config.parse_config(
+        ["-c", os.environ["ODOO_RC"], "-d", args.database], setup_logging=True
+    )
+    refs = json.loads(pathlib.Path(args.refs).read_text())["companies"]
+    if not refs:
+        raise SystemExit("no refs — run c1_bootstrap.py first")
+
+    rng = random.Random(42)
+    today = dt.date.today()
+    start_date = today - dt.timedelta(days=730)
+    span_days = (today - start_date).days
+
+    per_company = args.moves // len(refs)
+    actual_total = per_company * len(refs)
+    log.info(
+        "plan: %s moves (%s per company × %s companies) → %s AMLs; chunk=%s",
+        f"{actual_total:,}",
+        f"{per_company:,}",
+        len(refs),
+        f"{actual_total * 2:,}",
+        f"{args.chunk:,}",
+    )
+
+    # One big loop, chunk-committing. We bypass ORM entirely via raw cursor +
+    # COPY from an in-memory text buffer — on the order of 100k rows/sec per
+    # chunk on a local Postgres.
+    t0 = time.monotonic()
+    done_moves = 0
+    done_amls = 0
+
+    with Registry(args.database).cursor() as cr:
+        # Reserve id ranges upfront by advancing the sequences in bulk. Much
+        # faster than nextval() per row.
+        cr.execute(
+            "SELECT nextval('account_move_id_seq') FROM generate_series(1,%s)",
+            (actual_total,),
+        )
+        move_ids = [row[0] for row in cr.fetchall()]
+        cr.execute(
+            "SELECT nextval('account_move_line_id_seq') FROM generate_series(1,%s)",
+            (actual_total * 2,),
+        )
+        line_ids = [row[0] for row in cr.fetchall()]
+        log.info(
+            "reserved id ranges: moves %d..%d / lines %d..%d",
+            move_ids[0],
+            move_ids[-1],
+            line_ids[0],
+            line_ids[-1],
+        )
+        cr.commit()
+
+        move_idx = 0
+        line_idx = 0
+        for co in refs:
+            co_id = co["company_id"]
+            jnl_id = co["journal_id"]
+            cur_id = co["currency_id"]
+            ar_id = co["receivable_account_id"]
+            rev_id = co["revenue_account_id"]
+            partners = co["partner_ids"]
+
+            moves_todo = per_company
+            co_start = time.monotonic()
+            while moves_todo > 0:
+                chunk_moves = min(args.chunk, moves_todo)
+                move_buf = io.StringIO()
+                line_buf = io.StringIO()
+                # pre-sample randomness in bulk for speed
+                for _ in range(chunk_moves):
+                    mv_id = move_ids[move_idx]
+                    move_idx += 1
+                    dr_id = line_ids[line_idx]
+                    cr_id = line_ids[line_idx + 1]
+                    line_idx += 2
+
+                    days_offset = rng.randint(0, span_days)
+                    date = (start_date + dt.timedelta(days=days_offset)).isoformat()
+                    amount = round(rng.uniform(args.amount_min, args.amount_max), 2)
+                    partner_id = rng.choice(partners)
+
+                    # account_move columns (in the order of the COPY column list below)
+                    move_buf.write(
+                        f"{mv_id}\t{jnl_id}\t{co_id}\t{cur_id}\tposted\tentry\tno\topen\t{date}\t"
+                        f"ICD/{co_id}/{mv_id}\n"
+                    )
+                    # DR receivable
+                    line_buf.write(
+                        f"{dr_id}\t{mv_id}\t{jnl_id}\t{co_id}\t{cur_id}\t{ar_id}\t{partner_id}\t"
+                        f"product\t{amount}\t0\t{amount}\t{amount}\t{date}\tAR {mv_id}\n"
+                    )
+                    # CR revenue
+                    line_buf.write(
+                        f"{cr_id}\t{mv_id}\t{jnl_id}\t{co_id}\t{cur_id}\t{rev_id}\t{partner_id}\t"
+                        f"product\t0\t{amount}\t{-amount}\t{-amount}\t{date}\tRev {mv_id}\n"
+                    )
+
+                # COPY moves + lines via psycopg2.cursor.copy_expert
+                move_buf.seek(0)
+                pg_cur = cr._cnx.cursor()
+                pg_cur.copy_expert(
+                    "COPY account_move "
+                    "(id, journal_id, company_id, currency_id, state, move_type, auto_post, "
+                    "review_state, date, name) FROM STDIN",
+                    move_buf,
+                )
+                line_buf.seek(0)
+                pg_cur.copy_expert(
+                    "COPY account_move_line "
+                    "(id, move_id, journal_id, company_id, currency_id, account_id, partner_id, "
+                    "display_type, debit, credit, balance, amount_currency, date, name) "
+                    "FROM STDIN",
+                    line_buf,
+                )
+                pg_cur.close()
+                cr.commit()
+
+                done_moves += chunk_moves
+                done_amls += chunk_moves * 2
+                moves_todo -= chunk_moves
+
+                elapsed = time.monotonic() - t0
+                rate_mv = done_moves / elapsed
+                rate_aml = done_amls / elapsed
+                log.info(
+                    "co=%s | moves %s/%s | overall %s moves (%s/s), %s AMLs (%s/s)",
+                    co["company_name"],
+                    f"{per_company - moves_todo:,}",
+                    f"{per_company:,}",
+                    f"{done_moves:,}",
+                    f"{int(rate_mv):,}",
+                    f"{done_amls:,}",
+                    f"{int(rate_aml):,}",
+                )
+
+            log.info(
+                "co=%s DONE in %.1fs (%.0f moves/s)",
+                co["company_name"],
+                time.monotonic() - co_start,
+                per_company / max(0.001, time.monotonic() - co_start),
+            )
+
+    log.info("ALL DONE in %.1fs — %s moves, %s AMLs", time.monotonic() - t0, f"{done_moves:,}", f"{done_amls:,}")
+
+
+if __name__ == "__main__":
+    main()

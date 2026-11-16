@@ -1,0 +1,70 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pgbouncer-conf
+  namespace: ic-demo
+data:
+  pgbouncer.ini: |
+    [databases]
+    ic_demo = host=haproxy.ic-demo.internal port=5000 dbname=ic_demo
+    ic_demo_ro = host=haproxy.ic-demo.internal port=5001 dbname=ic_demo
+
+    [pgbouncer]
+    listen_addr = 0.0.0.0
+    listen_port = 6432
+    auth_type   = md5
+    auth_file   = /etc/pgbouncer/userlist.txt
+    pool_mode   = transaction
+    max_client_conn = 2000
+    default_pool_size = 50
+    reserve_pool_size = 10
+    reserve_pool_timeout = 3
+    server_idle_timeout = 60
+    server_lifetime     = 3600
+    ignore_startup_parameters = extra_float_digits
+    admin_users = pgbouncer_admin
+    stats_users = pgbouncer_stats
+  userlist.txt: |
+    "ic_demo" "md5REPLACE_WITH_MD5_OF_PASSWORD"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pgbouncer
+  namespace: ic-demo
+  labels: {app: pgbouncer}
+spec:
+  replicas: 2
+  selector:
+    matchLabels: {app: pgbouncer}
+  template:
+    metadata:
+      labels: {app: pgbouncer}
+    spec:
+      containers:
+        - name: pgbouncer
+          image: edoburu/pgbouncer:1.23.1-p2
+          ports:
+            - {name: sql, containerPort: 6432}
+          volumeMounts:
+            - {name: conf, mountPath: /etc/pgbouncer}
+          readinessProbe:
+            tcpSocket: {port: sql}
+            periodSeconds: 5
+          resources:
+            requests: {cpu: "200m", memory: "256Mi"}
+            limits:   {cpu: "1", memory: "1Gi"}
+      volumes:
+        - name: conf
+          configMap: {name: pgbouncer-conf}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pgbouncer
+  namespace: ic-demo
+spec:
+  selector: {app: pgbouncer}
+  ports:
+    - {name: sql, port: 6432, targetPort: sql}

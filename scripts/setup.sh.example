@@ -1,0 +1,111 @@
+#!/usr/bin/env bash
+# Bootstrap the ic_demo native dev environment.
+#
+#   - Creates a Python 3.12 venv in ./.venv for Odoo + Odoo-safe extras
+#   - Creates a Python 3.12 venv in ./.venv-tools for load-test + Patroni
+#     (whose gevent / Flask / Werkzeug pins conflict with Odoo's)
+#   - Creates the PostgreSQL role (skipped gracefully if sudo unavailable)
+#   - Creates var/ (filestore + logs)
+#
+# Re-runnable: skips steps that are already satisfied.
+
+set -euo pipefail
+
+PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+ODOO_SRC="/home/techvoot/work_space/20/base/odoo"
+VENV="$PROJECT_ROOT/.venv"
+TOOLS_VENV="$PROJECT_ROOT/.venv-tools"
+PG_ROLE="ic_demo"
+PG_PASSWORD="ic_demo"
+
+say()  { printf '\n\033[1;34m==> %s\033[0m\n' "$*"; }
+warn() { printf '\033[1;33m!! %s\033[0m\n' "$*"; }
+
+say "System deps check"
+MISSING=()
+python3 -m venv --help >/dev/null 2>&1 || MISSING+=("python3-venv")
+command -v wkhtmltopdf >/dev/null 2>&1 || MISSING+=("wkhtmltopdf")
+if [ "${#MISSING[@]}" -gt 0 ]; then
+    echo "Missing hard requirements:"
+    printf '    %s\n' "${MISSING[@]}"
+    echo
+    echo "Install with:"
+    echo "  sudo apt-get install -y ${MISSING[*]}"
+    exit 2
+fi
+# Soft list (only needed if pip has to build from source; Noble has wheels for
+# Odoo's full stack on py3.12, so these are rarely actually required):
+#   build-essential libpq-dev libldap2-dev libsasl2-dev libxslt1-dev libxml2-dev
+#   libjpeg-dev libffi-dev libtiff-dev zlib1g-dev libssl-dev python3-dev
+
+# ---------------------------------------------------------------------------
+# Odoo venv
+# ---------------------------------------------------------------------------
+say "Odoo venv (.venv)"
+if [ ! -d "$VENV" ]; then
+    python3 -m venv "$VENV"
+fi
+# shellcheck disable=SC1091
+source "$VENV/bin/activate"
+pip install --upgrade pip wheel setuptools
+
+say "Install project extras (Odoo-safe)"
+pip install -r "$PROJECT_ROOT/requirements.txt"
+
+# IMPORTANT: Odoo's requirements go LAST so its strict pins (gevent 24.2.1,
+# Werkzeug 3.0.1, greenlet 3.0.3) win over anything a transitive dep pulled.
+say "Install Odoo 20 runtime requirements (last, so its pins win)"
+pip install -r "$ODOO_SRC/requirements.txt"
+
+deactivate
+
+# ---------------------------------------------------------------------------
+# Tools venv (load-test + Patroni) — isolated
+# ---------------------------------------------------------------------------
+say "Tools venv (.venv-tools)"
+if [ ! -d "$TOOLS_VENV" ]; then
+    python3 -m venv "$TOOLS_VENV"
+fi
+# shellcheck disable=SC1091
+source "$TOOLS_VENV/bin/activate"
+pip install --upgrade pip wheel setuptools
+pip install -r "$PROJECT_ROOT/tools/requirements.txt"
+deactivate
+
+# ---------------------------------------------------------------------------
+# var/ scratch dirs
+# ---------------------------------------------------------------------------
+say "var/ directories"
+mkdir -p "$PROJECT_ROOT/var/filestore" "$PROJECT_ROOT/var/log"
+
+# ---------------------------------------------------------------------------
+# PostgreSQL role (needs sudo; non-fatal if unavailable)
+# ---------------------------------------------------------------------------
+say "PostgreSQL role '$PG_ROLE'"
+SQL_CHECK="SELECT 1 FROM pg_roles WHERE rolname='$PG_ROLE'"
+SQL_CREATE="CREATE ROLE $PG_ROLE WITH LOGIN SUPERUSER PASSWORD '$PG_PASSWORD';"
+if sudo -n true 2>/dev/null; then
+    if sudo -u postgres psql -tAc "$SQL_CHECK" | grep -q 1; then
+        echo "role already exists — ok"
+    else
+        sudo -u postgres psql -c "$SQL_CREATE"
+        echo "role created."
+    fi
+else
+    warn "sudo not available non-interactively — skipping role creation."
+    echo "Run this once in your terminal:"
+    echo "  sudo -u postgres psql -c \"$SQL_CREATE\""
+fi
+
+cat <<EOF
+
+Done.
+
+Next steps:
+  1. Run the sudo PG command above if it was skipped.
+  2. Initialise the demo DB:
+       ./scripts/run.sh -d ic_demo -i base,sale_management,account,bus,ic_demo_dashboard --stop-after-init
+  3. Start Odoo:
+       ./scripts/run.sh
+     then open http://localhost:8069
+EOF

@@ -1,0 +1,168 @@
+---
+# A small Prometheus Deployment scraping:
+#   - node_exporter on every droplet (pg1/pg2/ops/k3s-1..3)
+#   - patroni_exporter on pg1/pg2 (ships inside the Patroni package)
+#   - pgbouncer_exporter in-cluster (sidecar on the pgbouncer pods)
+#   - k8s API server + kubelet cAdvisor via standard k8s SD
+#
+# Alertmanager and Grafana are kept out of this file to keep the diff
+# small; `kubectl apply -f prometheus.yaml` gets you a scrape target list
+# and metrics on :9090 under the `ic-demo-monitoring` namespace.
+apiVersion: v1
+kind: Namespace
+metadata: {name: ic-demo-monitoring}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-conf
+  namespace: ic-demo-monitoring
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: 15s
+      evaluation_interval: 30s
+      external_labels: {cluster: ic-demo}
+
+    scrape_configs:
+      - job_name: prometheus
+        static_configs:
+          - targets: ['localhost:9090']
+
+      - job_name: node
+        static_configs:
+          - targets:
+              - pg1.ic-demo.internal:9100
+              - pg2.ic-demo.internal:9100
+              - ops.ic-demo.internal:9100
+              - k3s-1.ic-demo.internal:9100
+              - k3s-2.ic-demo.internal:9100
+              - k3s-3.ic-demo.internal:9100
+
+      - job_name: patroni
+        metrics_path: /metrics
+        static_configs:
+          - targets:
+              - pg1.ic-demo.internal:8008
+              - pg2.ic-demo.internal:8008
+
+      - job_name: etcd
+        static_configs:
+          - targets:
+              - pg1.ic-demo.internal:2379
+              - pg2.ic-demo.internal:2379
+              - ops.ic-demo.internal:2379
+
+      - job_name: haproxy
+        metrics_path: /metrics
+        static_configs:
+          - targets: ['ops.ic-demo.internal:7000']
+
+      - job_name: kubernetes-cadvisor
+        scheme: https
+        tls_config: {ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt, insecure_skip_verify: true}
+        bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+        kubernetes_sd_configs: [{role: node}]
+        relabel_configs:
+          - action: labelmap
+            regex: __meta_kubernetes_node_label_(.+)
+          - target_label: __address__
+            replacement: kubernetes.default.svc:443
+          - source_labels: [__meta_kubernetes_node_name]
+            regex: (.+)
+            target_label: __metrics_path__
+            replacement: /api/v1/nodes/${1}/proxy/metrics/cadvisor
+
+      - job_name: kubernetes-pods
+        kubernetes_sd_configs: [{role: pod}]
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+            action: keep
+            regex: true
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_port]
+            action: replace
+            target_label: __address__
+            regex: (.+)
+            replacement: ${1}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus
+  namespace: ic-demo-monitoring
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector: {matchLabels: {app: prometheus}}
+  template:
+    metadata: {labels: {app: prometheus}}
+    spec:
+      serviceAccountName: prometheus
+      containers:
+        - name: prometheus
+          image: prom/prometheus:v2.54.1
+          args:
+            - --config.file=/etc/prometheus/prometheus.yml
+            - --storage.tsdb.path=/data
+            - --storage.tsdb.retention.time=14d
+            - --web.enable-lifecycle
+          ports:
+            - {name: web, containerPort: 9090}
+          volumeMounts:
+            - {name: conf, mountPath: /etc/prometheus}
+            - {name: data, mountPath: /data}
+          resources:
+            requests: {cpu: "200m", memory: "512Mi"}
+            limits:   {cpu: "1", memory: "2Gi"}
+      volumes:
+        - name: conf
+          configMap: {name: prometheus-conf}
+        - name: data
+          persistentVolumeClaim: {claimName: prometheus-data}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus
+  namespace: ic-demo-monitoring
+spec:
+  selector: {app: prometheus}
+  ports:
+    - {name: web, port: 9090, targetPort: web}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: prometheus-data
+  namespace: ic-demo-monitoring
+spec:
+  accessModes: [ReadWriteOnce]
+  resources: {requests: {storage: 20Gi}}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: prometheus
+  namespace: ic-demo-monitoring
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: prometheus
+rules:
+  - apiGroups: [""]
+    resources: [nodes, nodes/metrics, nodes/proxy, services, endpoints, pods]
+    verbs: [get, list, watch]
+  - apiGroups: [""]
+    resources: [configmaps]
+    verbs: [get]
+  - nonResourceURLs: [/metrics]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: prometheus
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: prometheus}
+subjects:
+  - {kind: ServiceAccount, name: prometheus, namespace: ic-demo-monitoring}

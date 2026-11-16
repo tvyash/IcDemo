@@ -1,0 +1,54 @@
+---
+# Two Ingress objects — one for the websocket path, one for everything else —
+# so we can turn on websocket-specific annotations (connection upgrade,
+# longer read-timeouts) only where they're needed.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: odoo-ws
+  namespace: ic-demo
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    # Pin each client to the single bus pod — relevant if replicas > 1.
+    nginx.ingress.kubernetes.io/upstream-hash-by: "$binary_remote_addr"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: ic-demo.example.com
+      http:
+        paths:
+          - path: /websocket
+            pathType: Prefix
+            backend:
+              service:
+                name: odoo-bus
+                port: {number: 8072}
+          - path: /longpolling
+            pathType: Prefix
+            backend:
+              service:
+                name: odoo-bus
+                port: {number: 8072}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: odoo-web
+  namespace: ic-demo
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "100m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "600"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: ic-demo.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: odoo-web
+                port: {number: 8069}

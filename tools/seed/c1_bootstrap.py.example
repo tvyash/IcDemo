@@ -1,0 +1,219 @@
+"""C1 bootstrap — creates the 20 companies, installs the generic chart of
+accounts in each, grabs the journal + accounts + partner ids the bulk COPY
+step will reference, and writes them to `var/seed_refs.json`.
+
+Run from the project root with the Odoo venv:
+
+    .venv/bin/python tools/seed/c1_bootstrap.py --companies 20 --partners 100
+
+Idempotent: re-running updates/skips rather than duplicating.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import logging
+import os
+import pathlib
+import sys
+import time
+
+PROJECT = pathlib.Path(__file__).resolve().parents[2]
+ODOO_SRC = pathlib.Path("/home/techvoot/work_space/20/base/odoo")
+sys.path.insert(0, str(ODOO_SRC))
+
+os.environ.setdefault("ODOO_RC", str(PROJECT / "odoo" / "odoo.conf"))
+
+# Odoo must be importable from the venv.
+import odoo  # noqa: E402
+import odoo.init  # noqa: E402 — initialises odoo.SUPERUSER_ID etc.
+from odoo import api  # noqa: E402
+from odoo.modules.registry import Registry  # noqa: E402
+from odoo.tools import config  # noqa: E402
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+log = logging.getLogger("c1_bootstrap")
+
+
+def ensure_company(env, name, country_code, parent):
+    partner = env["res.partner"].search([("name", "=", name)], limit=1)
+    company = env["res.company"].search([("name", "=", name)], limit=1)
+    country = env["res.country"].search([("code", "=", country_code)], limit=1)
+    currency = (
+        env["res.currency"].search([("name", "=", "USD")], limit=1)
+        or env.ref("base.USD", raise_if_not_found=False)
+    )
+    if not company:
+        company = env["res.company"].create(
+            {
+                "name": name,
+                "country_id": country.id if country else False,
+                "currency_id": currency.id if currency else False,
+                "parent_id": parent.id if parent else False,
+            }
+        )
+        log.info("created company %s (id=%s)", name, company.id)
+    else:
+        if parent and company.parent_id != parent:
+            company.parent_id = parent
+        log.debug("company %s exists (id=%s)", name, company.id)
+    return company
+
+
+def _env_for_company(env, company):
+    """Return an env scoped to `company` (sets allowed_company_ids in ctx)
+    and ensures the running user (admin) is actually allowed in it."""
+    admin = env.ref("base.user_admin")
+    if company.id not in admin.company_ids.ids:
+        admin.sudo().company_ids = [(4, company.id)]
+    return env(
+        user=admin,
+        context=dict(env.context, allowed_company_ids=[company.id]),
+    )
+
+
+def ensure_coa(env, company):
+    """Install the generic CoA for `company`. Odoo 20 sets `chart_template`
+    on company creation BEFORE the accounts exist, so we check for actual
+    account.account rows rather than trusting `company.chart_template`."""
+    has_accounts = env["account.account"].search_count(
+        [("company_ids", "in", [company.id])]
+    )
+    if has_accounts:
+        log.debug("company %s already has %d accounts", company.name, has_accounts)
+        return
+    log.info("installing generic_coa in %s ...", company.name)
+    env_c = _env_for_company(env, company)
+    env_c["account.chart.template"].try_loading(
+        "generic_coa", company=company, install_demo=False
+    )
+    env.cr.commit()
+
+
+def pick_refs(env, company):
+    """Pick one misc journal, one receivable account, one revenue account."""
+    env = _env_for_company(env, company)
+    journal = env["account.journal"].search(
+        [("company_id", "=", company.id), ("type", "=", "general")], limit=1
+    )
+    if not journal:
+        journal = env["account.journal"].create(
+            {"name": "IC Demo Misc", "code": "ICD", "type": "general", "company_id": company.id}
+        )
+    receivable = env["account.account"].search(
+        [("company_ids", "in", company.id), ("account_type", "=", "asset_receivable")], limit=1
+    )
+    revenue = env["account.account"].search(
+        [("company_ids", "in", company.id), ("account_type", "=", "income")], limit=1
+    )
+    if not (receivable and revenue):
+        raise RuntimeError(
+            f"company {company.name}: could not pick receivable/revenue accounts "
+            f"(receivable={receivable}, revenue={revenue})"
+        )
+    return {
+        "company_id": company.id,
+        "company_name": company.name,
+        "currency_id": company.currency_id.id,
+        "journal_id": journal.id,
+        "receivable_account_id": receivable.id,
+        "revenue_account_id": revenue.id,
+    }
+
+
+def attach_company_to_parent_accounts(env, parent, company):
+    """Belt-and-braces: ensure `company` is in `company_ids` of every account
+    that belongs to `parent`. Idempotent."""
+    if company.id == parent.id:
+        return
+    env.cr.execute(
+        """
+        INSERT INTO account_account_res_company_rel (account_account_id, res_company_id)
+        SELECT DISTINCT r.account_account_id, %s
+        FROM account_account_res_company_rel r
+        WHERE r.res_company_id = %s
+        ON CONFLICT DO NOTHING
+        """,
+        (company.id, parent.id),
+    )
+    # Mirror for the few other per-company M2Ms that the chart of accounts
+    # depends on (journals, taxes etc. live on their own tables and are set
+    # by try_loading's recursion; we only rescue account.account here).
+    env.cache.invalidate()
+
+
+def ensure_partners(env, company, n):
+    env = _env_for_company(env, company)
+    existing = env["res.partner"].search(
+        [("company_id", "=", company.id), ("ref", "=like", "ic_demo:%")], limit=n
+    )
+    needed = n - len(existing)
+    if needed <= 0:
+        return existing.ids[:n]
+    new = env["res.partner"].create(
+        [
+            {
+                "name": f"{company.name} Partner {i:03d}",
+                "ref": f"ic_demo:{company.id}:{i}",
+                "company_id": company.id,
+                "customer_rank": 1,
+            }
+            for i in range(len(existing), n)
+        ]
+    )
+    log.info("company %s: created %d partners", company.name, len(new))
+    return (existing | new).ids[:n]
+
+
+def main():
+    p = argparse.ArgumentParser()
+    p.add_argument("--companies", type=int, default=20)
+    p.add_argument("--partners", type=int, default=100, help="partners per company")
+    p.add_argument("--database", default="ic_demo")
+    p.add_argument("--out", default=str(PROJECT / "var" / "seed_refs.json"))
+    args = p.parse_args()
+
+    config.parse_config(
+        ["-c", os.environ["ODOO_RC"], "-d", args.database], setup_logging=True
+    )
+
+    t0 = time.monotonic()
+    refs = []
+    registry = Registry(args.database)
+    with registry.cursor() as cr:
+        env = api.Environment(cr, odoo.SUPERUSER_ID, {})
+
+        # 1) Create the parent + every subsidiary first (no CoA yet).
+        parent = ensure_company(env, "ICD Group Holding", "US", parent=None)
+        subs = [parent]
+        for i in range(1, args.companies + 1):
+            name = f"ICD Sub {i:02d}"
+            subs.append(ensure_company(env, name, "US", parent=parent))
+        cr.commit()
+
+        # 2) Install the chart of accounts on the parent. Odoo's own
+        # try_loading recurses to every descendant, so every subsidiary
+        # that exists NOW gets added to each account.account.company_ids.
+        ensure_coa(env, parent)
+        cr.commit()
+
+        # 3) Collect refs + partners.
+        for company in subs:
+            # Post-install sanity: if the company still has no accounts the
+            # CoA recursion missed it (e.g. it was created after try_loading).
+            # Fix by adding it to each of the parent's accounts' company_ids.
+            attach_company_to_parent_accounts(env, parent, company)
+            ref = pick_refs(env, company)
+            ref["partner_ids"] = ensure_partners(env, company, args.partners)
+            refs.append(ref)
+            cr.commit()
+
+    out = pathlib.Path(args.out)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps({"companies": refs}, indent=2))
+    log.info("wrote %s (%d companies) in %.1fs", out, len(refs), time.monotonic() - t0)
+
+
+if __name__ == "__main__":
+    main()

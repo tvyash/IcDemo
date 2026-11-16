@@ -1,0 +1,95 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: odoo-web
+  namespace: ic-demo
+  labels: {app: odoo, component: web}
+spec:
+  replicas: 2
+  selector:
+    matchLabels: {app: odoo, component: web}
+  strategy:
+    rollingUpdate: {maxUnavailable: 0, maxSurge: 1}
+  template:
+    metadata:
+      labels: {app: odoo, component: web}
+      annotations:
+        prometheus.io/scrape: "false"   # Odoo doesn't expose /metrics natively.
+    spec:
+      securityContext:
+        fsGroup: 101
+      containers:
+        - name: odoo
+          image: odoo:20.0
+          imagePullPolicy: IfNotPresent
+          command: ["/usr/bin/odoo"]
+          args:
+            - "-c"
+            - "/etc/odoo/odoo.conf"
+            - "--workers=9"
+            - "--max-cron-threads=0"
+            - "--without-demo=all"
+          env:
+            - {name: ODOO_RC, value: /etc/odoo/odoo.conf}
+            - name: PGPASSWORD
+              valueFrom: {secretKeyRef: {name: odoo-secret, key: db_password}}
+            - name: IC_DEMO_PG_PASSWORD
+              valueFrom: {secretKeyRef: {name: odoo-secret, key: db_password}}
+            - name: IC_DEMO_ADMIN_PASSPHRASE
+              valueFrom: {secretKeyRef: {name: odoo-secret, key: admin_passwd}}
+          ports:
+            - {name: http, containerPort: 8069}
+          readinessProbe:
+            httpGet: {path: /web/health, port: http}
+            initialDelaySeconds: 15
+            periodSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet: {path: /web/health, port: http}
+            initialDelaySeconds: 60
+            periodSeconds: 15
+            failureThreshold: 6
+          resources:
+            requests: {cpu: "2", memory: "4Gi"}
+            limits:   {cpu: "4", memory: "10Gi"}
+          volumeMounts:
+            - {name: odoo-conf, mountPath: /etc/odoo}
+            - {name: filestore, mountPath: /var/lib/odoo}
+      volumes:
+        - name: odoo-conf
+          configMap: {name: odoo-conf}
+        - name: filestore
+          persistentVolumeClaim: {claimName: odoo-filestore}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: odoo-web
+  namespace: ic-demo
+spec:
+  selector: {app: odoo, component: web}
+  ports:
+    - {name: http, port: 8069, targetPort: http}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: odoo-web
+  namespace: ic-demo
+spec:
+  scaleTargetRef: {apiVersion: apps/v1, kind: Deployment, name: odoo-web}
+  minReplicas: 2
+  maxReplicas: 8
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target: {type: Utilization, averageUtilization: 70}
+    - type: Resource
+      resource:
+        name: memory
+        target: {type: Utilization, averageUtilization: 75}
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 180

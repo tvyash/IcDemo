@@ -1,0 +1,61 @@
+---
+# Dedicated gevent-only Deployment — serves the websocket upgrade on 8072.
+# Keep at 1 replica so every ws client lands on the same process (they're
+# routed here by the ingress' /websocket path; no need for sticky sessions).
+# If you ever bump >1, add sessionAffinity: ClientIP on the Service and
+# a sticky-session annotation on the Ingress.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: odoo-bus
+  namespace: ic-demo
+  labels: {app: odoo, component: bus}
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector:
+    matchLabels: {app: odoo, component: bus}
+  template:
+    metadata:
+      labels: {app: odoo, component: bus}
+    spec:
+      securityContext: {fsGroup: 101}
+      containers:
+        - name: odoo
+          image: odoo:20.0
+          command: ["/usr/bin/odoo", "gevent"]
+          args:
+            - "-c"
+            - "/etc/odoo/odoo.conf"
+            - "--workers=0"
+            - "--max-cron-threads=0"
+          env:
+            - name: PGPASSWORD
+              valueFrom: {secretKeyRef: {name: odoo-secret, key: db_password}}
+          ports:
+            - {name: ws, containerPort: 8072}
+          readinessProbe:
+            tcpSocket: {port: ws}
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          resources:
+            requests: {cpu: "1", memory: "2Gi"}
+            limits:   {cpu: "2", memory: "4Gi"}
+          volumeMounts:
+            - {name: odoo-conf, mountPath: /etc/odoo}
+            - {name: filestore, mountPath: /var/lib/odoo, readOnly: true}
+      volumes:
+        - name: odoo-conf
+          configMap: {name: odoo-conf}
+        - name: filestore
+          persistentVolumeClaim: {claimName: odoo-filestore}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: odoo-bus
+  namespace: ic-demo
+spec:
+  selector: {app: odoo, component: bus}
+  ports:
+    - {name: ws, port: 8072, targetPort: ws}

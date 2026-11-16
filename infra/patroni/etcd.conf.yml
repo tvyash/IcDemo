@@ -1,0 +1,21 @@
+# etcd config template for one node in the 3-node ic-demo cluster. Each
+# node copies this and fills in its own name / IPs. The three nodes are
+# pg1, pg2 and ops — co-locating etcd on the data plane plus one
+# tie-breaker on ops. Quorum needs any two up; losing one is fine, losing
+# two blocks writes until a node is restored.
+
+name: 'pg1'                                   # <-- change per node
+data-dir: /var/lib/etcd
+initial-cluster-token: ic-demo-etcd
+initial-cluster-state: new
+initial-cluster: 'pg1=http://pg1.ic-demo.internal:2380,pg2=http://pg2.ic-demo.internal:2380,ops=http://ops.ic-demo.internal:2380'
+
+listen-peer-urls: http://0.0.0.0:2380
+listen-client-urls: http://0.0.0.0:2379
+initial-advertise-peer-urls: http://pg1.ic-demo.internal:2380         # <-- per node
+advertise-client-urls: http://pg1.ic-demo.internal:2379               # <-- per node
+
+enable-v2: false
+auto-compaction-mode: periodic
+auto-compaction-retention: '24h'
+quota-backend-bytes: 2147483648

@@ -1,0 +1,86 @@
+# Patroni config for cloud node pg1. Second node mirrors this with its own
+# name / connect_address / data_dir. Three-node etcd (co-located on pg1,
+# pg2, and the ops node) is the DCS. Patroni writes its leader lock into
+# etcd; whichever node holds the lock accepts writes. If the lock expires
+# (default 30s TTL), the other node promotes itself.
+
+scope: ic-demo-pg
+namespace: /service/
+name: pg1
+
+restapi:
+  listen: 0.0.0.0:8008
+  connect_address: pg1.ic-demo.internal:8008
+
+etcd3:
+  hosts:
+    - pg1.ic-demo.internal:2379
+    - pg2.ic-demo.internal:2379
+    - ops.ic-demo.internal:2379
+
+bootstrap:
+  dcs:
+    ttl: 30
+    loop_wait: 10
+    retry_timeout: 10
+    maximum_lag_on_failover: 1048576
+    synchronous_mode: false
+    postgresql:
+      use_pg_rewind: true
+      use_slots: true
+      parameters:
+        max_connections: 300
+        shared_buffers: 2GB
+        effective_cache_size: 6GB
+        work_mem: 16MB
+        maintenance_work_mem: 256MB
+        wal_level: replica
+        max_wal_senders: 10
+        wal_keep_size: 2GB
+        hot_standby: 'on'
+        synchronous_commit: 'on'
+        checkpoint_completion_target: 0.9
+        random_page_cost: 1.1  # SSD
+  initdb:
+    - encoding: UTF8
+    - data-checksums
+    - locale: C.UTF-8
+  pg_hba:
+    - host replication replicator 10.10.0.0/16 md5
+    - host all           ic_demo    10.10.0.0/16 md5
+    - host all           all        127.0.0.1/32 trust
+  users:
+    admin:
+      password: CHANGE_ME_admin
+      options:
+        - createrole
+        - createdb
+    replicator:
+      password: CHANGE_ME_repl
+      options:
+        - replication
+
+postgresql:
+  listen: 0.0.0.0:5432
+  connect_address: pg1.ic-demo.internal:5432
+  data_dir: /var/lib/postgresql/18/main
+  bin_dir: /usr/lib/postgresql/18/bin
+  pgpass: /tmp/pgpass0
+  authentication:
+    replication:
+      username: replicator
+      password: CHANGE_ME_repl
+    superuser:
+      username: postgres
+      password: CHANGE_ME_postgres
+    rewind:
+      username: rewind_user
+      password: CHANGE_ME_rewind
+  parameters:
+    unix_socket_directories: '/var/run/postgresql'
+
+tags:
+  nofailover: false
+  noloadbalance: false
+  clonefrom: false
+  nosync: false

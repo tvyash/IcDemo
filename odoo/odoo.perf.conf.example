@@ -1,0 +1,49 @@
+[options]
+; Perf / load-test profile for the ic_demo project.
+;
+; Same addons + DB as odoo.conf, but with a proper worker pool so the
+; dedicated gevent service on :8072 can fan websockets to many clients
+; in parallel — matching the cloud profile (C5 k3s) where ingress routes
+; /websocket to the gevent service.
+;
+;   HTTP  -> 127.0.0.1:8069   (odoo HTTP preforked workers)
+;   WS    -> 127.0.0.1:8072   (odoo gevent single-process)
+;
+; Point the locust harness at both via IC_DEMO_WS_PORT=8072.
+
+; Modules live at the project root (ic_demo_dashboard/, ic_demo_consolidation/),
+; so this project's own path IS the directory to point at.
+addons_path = /home/techvoot/work_space/20/base/enterprise,/home/techvoot/work_space/20/base/odoo/addons,/home/techvoot/work_space/20/projects/ic_demo,/home/techvoot/work_space/20/projects/ic_demo/addons/oca,/home/techvoot/work_space/20/projects/ic_demo/addons/custom
+data_dir = /home/techvoot/work_space/20/projects/ic_demo/var/filestore
+
+; --- Database --------------------------------------------------------------
+db_host = localhost
+db_port = 5432
+db_user = ic_demo
+db_password = ic_demo
+db_maxconn = 150
+db_replica_host = localhost
+db_replica_port = 5432
+
+; --- HTTP + Bus ------------------------------------------------------------
+xmlrpc_port = 8069
+proxy_mode = True
+gevent_port = 8072
+
+; --- Workers (perf profile) ------------------------------------------------
+workers = 4
+max_cron_threads = 1
+
+; --- Memory / time limits --------------------------------------------------
+limit_memory_soft = 671088640
+limit_memory_hard = 1073741824
+limit_time_cpu = 120
+limit_time_real = 240
+limit_time_real_cron = -1
+limit_request = 8192
+
+; --- Logging ---------------------------------------------------------------
+log_level = info
+logfile = /home/techvoot/work_space/20/projects/ic_demo/var/log/odoo.log
+
+list_db = True

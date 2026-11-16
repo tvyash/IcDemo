@@ -1,0 +1,111 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-datasources
+  namespace: ic-demo-monitoring
+data:
+  datasources.yaml: |
+    apiVersion: 1
+    datasources:
+      - name: Prometheus
+        type: prometheus
+        access: proxy
+        url: http://prometheus.ic-demo-monitoring.svc:9090
+        isDefault: true
+        version: 1
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboards-provisioning
+  namespace: ic-demo-monitoring
+data:
+  dashboards.yaml: |
+    apiVersion: 1
+    providers:
+      - name: ic-demo
+        folder: 'IC Demo'
+        type: file
+        options:
+          path: /var/lib/grafana/dashboards
+---
+# Dashboard JSON stubs — fill with real graphs after a first run. Grafana
+# accepts plain JSON files via the file provider configured above.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboards
+  namespace: ic-demo-monitoring
+data:
+  patroni-cluster.json: |
+    {"title":"Patroni cluster health","panels":[],"schemaVersion":39,"version":0}
+  odoo-workload.json: |
+    {"title":"Odoo workload — RPC latency + worker load","panels":[],"schemaVersion":39,"version":0}
+  haproxy-pgbouncer.json: |
+    {"title":"HAProxy + pgBouncer","panels":[],"schemaVersion":39,"version":0}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grafana
+  namespace: ic-demo-monitoring
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector: {matchLabels: {app: grafana}}
+  template:
+    metadata: {labels: {app: grafana}}
+    spec:
+      containers:
+        - name: grafana
+          image: grafana/grafana:11.2.2
+          env:
+            - name: GF_SECURITY_ADMIN_PASSWORD
+              valueFrom: {secretKeyRef: {name: grafana-secret, key: admin_password}}
+            - {name: GF_USERS_ALLOW_SIGN_UP, value: "false"}
+          ports:
+            - {name: web, containerPort: 3000}
+          volumeMounts:
+            - {name: ds, mountPath: /etc/grafana/provisioning/datasources}
+            - {name: dash-prov, mountPath: /etc/grafana/provisioning/dashboards}
+            - {name: dash, mountPath: /var/lib/grafana/dashboards}
+            - {name: data, mountPath: /var/lib/grafana}
+          resources:
+            requests: {cpu: "100m", memory: "256Mi"}
+            limits:   {cpu: "1", memory: "1Gi"}
+      volumes:
+        - {name: ds, configMap: {name: grafana-datasources}}
+        - {name: dash-prov, configMap: {name: grafana-dashboards-provisioning}}
+        - {name: dash, configMap: {name: grafana-dashboards}}
+        - name: data
+          persistentVolumeClaim: {claimName: grafana-data}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: grafana
+  namespace: ic-demo-monitoring
+spec:
+  selector: {app: grafana}
+  ports:
+    - {name: web, port: 3000, targetPort: web}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: grafana-data
+  namespace: ic-demo-monitoring
+spec:
+  accessModes: [ReadWriteOnce]
+  resources: {requests: {storage: 5Gi}}
+---
+# One-time: kubectl -n ic-demo-monitoring create secret generic grafana-secret --from-literal=admin_password='CHANGE_ME'
+apiVersion: v1
+kind: Secret
+metadata:
+  name: grafana-secret
+  namespace: ic-demo-monitoring
+type: Opaque
+stringData:
+  admin_password: "CHANGE_ME_before_apply"
