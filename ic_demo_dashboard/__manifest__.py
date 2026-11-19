@@ -1,7 +1,7 @@
 {
     "name": "IC Demo — Real-Time Dashboard",
     "summary": "OWL dashboard with Odoo Bus live updates per company (C4 of ic_demo)",
-    "version": "20.0.1.0.0",
+    "version": "20.0.1.1.0",
     "category": "Tools",
     "license": "LGPL-3",
     "author": "Techvoot",

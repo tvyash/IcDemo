@@ -1,7 +1,7 @@
 {
     "name": "IC Demo — Consolidated Reporting",
     "summary": "Fast SQL-backed consolidated P&L across 20+ companies (C1 of ic_demo)",
-    "version": "20.0.1.0.0",
+    "version": "20.0.1.1.0",
     "category": "Accounting",
     "license": "LGPL-3",
     "author": "Techvoot",
