@@ -74,14 +74,10 @@
         </field>
     </record>
 
-    <menuitem id="menu_ic_demo_root_consolidation"
-              name="IC Demo"
-              sequence="30"
-              web_icon="account,static/description/icon.png"/>
     <menuitem id="menu_ic_demo_consolidation"
               name="Consolidated P&amp;L"
-              parent="menu_ic_demo_root_consolidation"
+              parent="ic_demo_dashboard.menu_ic_demo_root"
               action="action_ic_demo_consolidation"
-              sequence="10"/>
+              sequence="20"/>
 
 </odoo>

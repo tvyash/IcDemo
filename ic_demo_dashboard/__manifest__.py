@@ -12,6 +12,7 @@
         "account",
     ],
     "data": [
+        "security/ir.access.csv",
         "views/dashboard_views.xml",
     ],
     "assets": {

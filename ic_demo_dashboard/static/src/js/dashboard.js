@@ -22,6 +22,8 @@ export class IcDemoDashboard extends Component {
 
     setup() {
         this.orm = useService("orm");
+        this.action = useService("action");
+        this.notification = useService("notification");
 
         this.state = proxy({
             loading: true,
@@ -29,9 +31,11 @@ export class IcDemoDashboard extends Component {
             events: [],
             eventCount: 0,
             lastEventAt: null,
+            simulating: false,
+            lastBurst: null,
         });
 
-        this._channel = null;
+        this._channels = [];
         this._unsubscribe = this.busService.subscribe(
             "ic_demo.kpi.tick",
             (payload) => this._onTick(payload),
@@ -39,25 +43,27 @@ export class IcDemoDashboard extends Component {
 
         onWillStart(async () => {
             await this._loadSnapshot();
-            this._channel = this.state.snapshot.channel;
-            this.busService.addChannel(this._channel);
+            this._channels = this.state.snapshot.scope.channels;
+            for (const ch of this._channels) {
+                this.busService.addChannel(ch);
+            }
         });
 
         onWillUnmount(() => {
             this._unsubscribe?.();
-            if (this._channel) {
-                this.busService.deleteChannel(this._channel);
+            for (const ch of this._channels) {
+                this.busService.deleteChannel(ch);
             }
         });
     }
 
     async _loadSnapshot() {
-        const companyId = user.activeCompany.id;
+        const companyIds = (user.activeCompanies || []).map((c) => c.id);
         const snapshot = await this.orm.call(
             "ic.demo.dashboard.kpi",
             "get_snapshot",
             [],
-            { company_id: companyId },
+            { company_ids: companyIds },
         );
         this.state.snapshot = snapshot;
         this.state.loading = false;
@@ -69,6 +75,7 @@ export class IcDemoDashboard extends Component {
         this.state.lastEventAt = new Date(now).toLocaleTimeString();
         this.state.events.unshift({
             at: this.state.lastEventAt,
+            id: payload.id,
             model: payload.model,
             action: payload.action,
             name: payload.name,
@@ -91,6 +98,48 @@ export class IcDemoDashboard extends Component {
     formatAmount(v) {
         if (v == null) return "–";
         return Number(v).toLocaleString(undefined, { maximumFractionDigits: 2 });
+    }
+
+    openRecord(ev) {
+        if (!ev || !ev.id || !ev.model) {
+            return;
+        }
+        this.action.doAction({
+            type: "ir.actions.act_window",
+            name: `${ev.model} · ${ev.name}`,
+            res_model: ev.model,
+            res_id: ev.id,
+            views: [[false, "form"]],
+            target: "new",
+        });
+    }
+
+    async simulate() {
+        if (this.state.simulating) {
+            return;
+        }
+        this.state.simulating = true;
+        try {
+            const scope = this.state.snapshot?.scope?.ids || [];
+            const result = await this.orm.call(
+                "ic.demo.dashboard.kpi",
+                "simulate_burst",
+                [],
+                { count: 20, company_ids: scope },
+            );
+            this.state.lastBurst = result;
+            this.notification.add(
+                `Burst: ${result.created} created, ${result.confirmed} confirmed in ${result.elapsed_ms} ms`,
+                { type: "success", sticky: false },
+            );
+        } catch (err) {
+            this.notification.add(
+                `Burst failed: ${err.message || err}`,
+                { type: "danger", sticky: true },
+            );
+        } finally {
+            this.state.simulating = false;
+        }
     }
 }
 

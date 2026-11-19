@@ -70,6 +70,7 @@ class IcDemoConsolidationLine(models.Model):
             JOIN account_account acc ON acc.id = aml.account_id
             JOIN res_company c       ON c.id  = aml.company_id
             WHERE am.state = 'posted'
+              AND c.active = TRUE
               AND aml.display_type NOT IN ('line_section', 'line_subsection', 'line_note')
             GROUP BY aml.company_id, date_trunc('month', aml.date), to_char(aml.date, 'YYYY'), c.currency_id
             """

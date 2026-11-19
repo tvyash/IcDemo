@@ -5,7 +5,7 @@
         <div class="o_ic_demo_dashboard">
             <div class="o_icd_header">
                 <h2 t-if="this.state.snapshot">
-                    <t t-esc="this.state.snapshot.company.name"/>
+                    <t t-esc="this.state.snapshot.scope.label"/>
                     <small class="text-muted"> — live last 30 days</small>
                 </h2>
                 <div class="o_icd_meta" t-if="this.state.snapshot">
@@ -27,7 +27,7 @@
                     <div class="o_icd_tile_label">Confirmed sales value</div>
                     <div class="o_icd_tile_value">
                         <t t-esc="this.formatAmount(this.state.snapshot.sales_confirmed)"/>
-                        <span class="o_icd_tile_unit"><t t-esc="this.state.snapshot.company.currency"/></span>
+                        <span class="o_icd_tile_unit"><t t-esc="this.state.snapshot.scope.currency"/></span>
                     </div>
                 </div>
                 <div class="o_icd_tile">
@@ -40,7 +40,7 @@
                     <div class="o_icd_tile_label">Posted revenue</div>
                     <div class="o_icd_tile_value">
                         <t t-esc="this.formatAmount(this.state.snapshot.revenue_posted)"/>
-                        <span class="o_icd_tile_unit"><t t-esc="this.state.snapshot.company.currency"/></span>
+                        <span class="o_icd_tile_unit"><t t-esc="this.state.snapshot.scope.currency"/></span>
                     </div>
                 </div>
                 <div class="o_icd_tile">
@@ -61,10 +61,17 @@
                         </tr>
                     </thead>
                     <tbody>
-                        <tr t-foreach="this.state.events" t-as="ev" t-key="ev_index">
+                        <tr t-foreach="this.state.events" t-as="ev" t-key="ev_index"
+                            class="o_icd_ev_row"
+                            t-on-click="() => this.openRecord(ev)"
+                            t-att-title="ev.id ? 'Open ' + ev.model + ' #' + ev.id : ''">
                             <td class="text-muted" t-esc="ev.at"/>
                             <td><code t-esc="ev.model"/></td>
-                            <td><t t-esc="ev.action"/></td>
+                            <td>
+                                <span t-att-class="'o_icd_ev_action o_icd_ev_action_' + ev.action">
+                                    <t t-esc="ev.action"/>
+                                </span>
+                            </td>
                             <td t-esc="ev.name"/>
                             <td t-esc="ev.partner"/>
                             <td class="text-end">

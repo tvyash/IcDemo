@@ -5,7 +5,7 @@
     "category": "Accounting",
     "license": "LGPL-3",
     "author": "Techvoot",
-    "depends": ["account"],
+    "depends": ["account", "ic_demo_dashboard"],
     "data": [
         "security/ir.access.csv",
         "views/consolidation_views.xml",

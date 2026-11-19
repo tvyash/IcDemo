@@ -142,27 +142,47 @@ class BusinessUser(User):
         host = self.environment.host.rstrip("/")
         self._host = host
         self._session = odoo_login(host)
-        # Pick partners that admin ('My Company', id=1) is allowed to sell to.
-        # Shared partners have company_id=False; add company_id=1 for the
-        # ones created against My Company specifically. Anything else belongs
-        # to a subsidiary and would trip Odoo's company-consistency check.
+        # Admin's primary company is Techvoot Global HQ (id=2) after the reshape.
+        # Pick partners + products visible to it: shared (company_id=False) or
+        # scoped to id=2. Anything else would trip Odoo's company-consistency
+        # check on sale.order.create.
         partners = odoo_call(
             self._session, host, "res.partner", "search",
-            args=[["|", ("company_id", "=", False), ("company_id", "=", 1)]],
+            args=[[("active", "=", True),
+                   "|", ("company_id", "=", False), ("company_id", "=", 2)]],
             kwargs={"limit": PARTNERS_PER_USER},
         )
         self._partners = partners or [3]
+        products = odoo_call(
+            self._session, host, "product.product", "search",
+            args=[[("sale_ok", "=", True),
+                   "|", ("company_id", "=", False), ("company_id", "=", 2)]],
+            kwargs={"limit": 20},
+        )
+        self._products = products or []
 
     @task(4)
     def create_sale_order(self):
         start = time.monotonic()
         try:
+            line = {
+                "product_id": random.choice(self._products) if self._products else False,
+                "product_uom_qty": random.randint(1, 10),
+                "price_unit": round(random.uniform(50.0, 2000.0), 2),
+            }
+            if not line["product_id"]:
+                # No product pool found — fall back to a blank line so we still
+                # exercise the write path (amount_total will be 0 in that case).
+                line = {"name": "Load-test item", "price_unit": round(random.uniform(50.0, 2000.0), 2)}
             order_id = odoo_call(
                 self._session,
                 self._host,
                 "sale.order",
                 "create",
-                args=[{"partner_id": random.choice(self._partners)}],
+                args=[{
+                    "partner_id": random.choice(self._partners),
+                    "order_line": [(0, 0, line)],
+                }],
             )
             self._last_order = order_id
             latency = (time.monotonic() - start) * 1000
@@ -256,7 +276,7 @@ class AnalystUser(User):
             odoo_call(
                 self._session, self._host,
                 "ic.demo.dashboard.kpi", "get_snapshot",
-                kwargs={"company_id": 1},
+                kwargs={"company_ids": [2]},
             )
             latency = (time.monotonic() - start) * 1000
             METRICS.record_read(latency, ok=True)

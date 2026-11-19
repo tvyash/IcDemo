@@ -1,0 +1,141 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+
+    <t t-name="ic_demo_dashboard.LoadTest">
+        <div class="o_ic_demo_loadtest">
+            <div class="o_icdlt_header">
+                <h2>IC Demo — Load Test</h2>
+                <p class="o_icdlt_sub">
+                    Fires a configurable swarm of HTTP users at this Odoo instance — writers that create / confirm / read sale orders, analysts that hit the dashboard snapshot and consolidation pivot. Same shape as <code>tools/load/concurrent_writers.py</code> but driven from the UI, no shell access required. Start here, flip to the <strong>Live KPI Dashboard</strong> tab to watch the tiles climb in real time, then return to see the full report.
+                </p>
+            </div>
+
+            <div class="o_icdlt_card o_icdlt_params">
+                <div class="o_icdlt_params_row">
+                    <label>Virtual users
+                        <input type="number" min="1" max="200"
+                               t-att-value="this.state.users"
+                               t-on-input="(ev) => this.state.users = Number(ev.target.value)"
+                               t-att-disabled="this.isRunning"/>
+                    </label>
+                    <label>Spawn rate (users/s)
+                        <input type="number" min="1" max="50"
+                               t-att-value="this.state.spawnRate"
+                               t-on-input="(ev) => this.state.spawnRate = Number(ev.target.value)"
+                               t-att-disabled="this.isRunning"/>
+                    </label>
+                    <label>Run time (s)
+                        <input type="number" min="5" max="600"
+                               t-att-value="this.state.runTime"
+                               t-on-input="(ev) => this.state.runTime = Number(ev.target.value)"
+                               t-att-disabled="this.isRunning"/>
+                    </label>
+                    <button class="btn o_icdlt_start_btn"
+                            t-on-click="() => this.start()"
+                            t-att-disabled="this.isRunning or this.state.starting">
+                        <t t-if="this.state.starting">
+                            <i class="fa fa-spinner fa-pulse me-1"/> Starting…
+                        </t>
+                        <t t-elif="this.isRunning">
+                            <i class="fa fa-spinner fa-pulse me-1"/> Running…
+                        </t>
+                        <t t-else="">
+                            <i class="fa fa-play me-1"/> Start load test
+                        </t>
+                    </button>
+                </div>
+            </div>
+
+            <div class="o_icdlt_card o_icdlt_status" t-if="this.state.status">
+                <div class="o_icdlt_summary">
+                    <div class="o_icdlt_stat">
+                        <div class="o_icdlt_stat_label">State</div>
+                        <div class="o_icdlt_stat_value">
+                            <span t-attf-class="o_icdlt_pill o_icdlt_state_{{this.state.status.state}}">
+                                <t t-esc="this.state.status.state"/>
+                            </span>
+                        </div>
+                    </div>
+                    <div class="o_icdlt_stat">
+                        <div class="o_icdlt_stat_label">Elapsed</div>
+                        <div class="o_icdlt_stat_value"><t t-esc="this.state.status.elapsed || 0"/> / <t t-esc="this.state.status.run_time"/> s</div>
+                    </div>
+                    <div class="o_icdlt_stat">
+                        <div class="o_icdlt_stat_label">Total requests</div>
+                        <div class="o_icdlt_stat_value"><t t-esc="this.formatNum(this.state.status.total_requests)"/></div>
+                    </div>
+                    <div class="o_icdlt_stat">
+                        <div class="o_icdlt_stat_label">Failures</div>
+                        <div class="o_icdlt_stat_value" t-att-class="this.state.status.total_failures ? 'o_icdlt_fail_v' : ''">
+                            <t t-esc="this.formatNum(this.state.status.total_failures)"/>
+                        </div>
+                    </div>
+                    <div class="o_icdlt_stat">
+                        <div class="o_icdlt_stat_label">Orders created</div>
+                        <div class="o_icdlt_stat_value"><t t-esc="this.formatNum(this.state.status.orders_created)"/></div>
+                    </div>
+                </div>
+
+                <div class="o_icdlt_progress">
+                    <div class="o_icdlt_progress_bar" t-attf-style="width: {{this.progressPct}}%"/>
+                </div>
+
+                <h4>Per-endpoint stats</h4>
+                <table class="table table-sm o_icdlt_table">
+                    <thead>
+                        <tr>
+                            <th>Endpoint</th>
+                            <th class="text-end"># reqs</th>
+                            <th class="text-end"># fails</th>
+                            <th class="text-end">% fails</th>
+                            <th class="text-end">avg (ms)</th>
+                            <th class="text-end">min</th>
+                            <th class="text-end">max</th>
+                            <th class="text-end">median</th>
+                            <th class="text-end">p95</th>
+                            <th class="text-end">p99</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr t-foreach="this.endpointRows" t-as="row" t-key="row.name">
+                            <td><code t-esc="row.name"/></td>
+                            <td class="text-end"><t t-esc="this.formatNum(row.reqs)"/></td>
+                            <td class="text-end" t-att-class="row.fail ? 'o_icdlt_fail' : ''"><t t-esc="this.formatNum(row.fail)"/></td>
+                            <td class="text-end"><t t-esc="row.pct_fail"/>%</td>
+                            <td class="text-end"><t t-esc="row.avg"/></td>
+                            <td class="text-end"><t t-esc="row.min"/></td>
+                            <td class="text-end"><t t-esc="row.max"/></td>
+                            <td class="text-end"><t t-esc="row.med"/></td>
+                            <td class="text-end"><t t-esc="row.p95"/></td>
+                            <td class="text-end"><t t-esc="row.p99"/></td>
+                        </tr>
+                        <tr t-if="!this.endpointRows.length">
+                            <td colspan="10" class="text-center o_icdlt_empty">no requests recorded yet</td>
+                        </tr>
+                    </tbody>
+                </table>
+
+                <div t-if="(this.isFinished or this.isError) and this.state.status.errors and this.state.status.errors.length" class="o_icdlt_errors">
+                    <h4>Error report</h4>
+                    <table class="table table-sm o_icdlt_table">
+                        <thead>
+                            <tr><th class="text-end"># occurrences</th><th>Error</th></tr>
+                        </thead>
+                        <tbody>
+                            <tr t-foreach="this.state.status.errors" t-as="err" t-key="err_index">
+                                <td class="text-end"><t t-esc="err.count"/></td>
+                                <td><code t-esc="err.error"/></td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <div t-if="this.isError and this.state.status.log" class="o_icdlt_errors">
+                    <h4>Runner log</h4>
+                    <pre class="o_icdlt_logbox"><t t-esc="this.state.status.log"/></pre>
+                </div>
+            </div>
+        </div>
+    </t>
+
+</templates>

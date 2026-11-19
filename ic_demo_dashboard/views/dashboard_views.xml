@@ -15,4 +15,15 @@
               parent="menu_ic_demo_root"
               action="action_ic_demo_dashboard"
               sequence="10"/>
+
+    <record id="action_ic_demo_load_test" model="ir.actions.client">
+        <field name="name">IC Demo — Load Test</field>
+        <field name="tag">ic_demo_load_test</field>
+    </record>
+
+    <menuitem id="menu_ic_demo_load_test"
+              name="Load Test"
+              parent="menu_ic_demo_root"
+              action="action_ic_demo_load_test"
+              sequence="30"/>
 </odoo>
