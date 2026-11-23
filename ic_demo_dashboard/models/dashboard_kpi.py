@@ -62,7 +62,9 @@ class DashboardKpi(models.AbstractModel):
         invoices = self.env.cr.dictfetchone() or {}
 
         names = companies.mapped("name")
-        if len(names) == 1:
+        if not names:
+            label = "No company"
+        elif len(names) == 1:
             label = names[0]
         elif len(names) == 2:
             label = f"{names[0]} + {names[1]}"

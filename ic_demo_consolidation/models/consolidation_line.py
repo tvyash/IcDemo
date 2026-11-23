@@ -30,10 +30,12 @@ class IcDemoConsolidationLine(models.Model):
     currency_id = fields.Many2one("res.currency", string="Currency", readonly=True)
 
     def init(self):
-        """Store the rollup as a MATERIALIZED view — ~525 rows at 10M AMLs,
-        so pivot/graph queries land in microseconds instead of scanning the
-        full AML table every time. Refresh via the ``refresh()`` classmethod
-        (hook it up to a cron if the demo ever needs live refresh)."""
+        """Store the rollup as a MATERIALIZED view — one row per
+        (company × month), e.g. ~125 rows for 5 active companies over 25
+        months at 10M+ AMLs. Pivot/graph queries land in microseconds
+        instead of scanning the full AML table every time. Refresh via the
+        ``refresh()`` classmethod (hook it up to a cron if the demo ever
+        needs live refresh)."""
         cr = self.env.cr
         # Drop any plain view from an earlier install, then (re)create materialized.
         cr.execute(

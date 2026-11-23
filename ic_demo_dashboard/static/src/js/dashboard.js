@@ -23,7 +23,6 @@ export class IcDemoDashboard extends Component {
     setup() {
         this.orm = useService("orm");
         this.action = useService("action");
-        this.notification = useService("notification");
 
         this.state = proxy({
             loading: true,
@@ -31,8 +30,6 @@ export class IcDemoDashboard extends Component {
             events: [],
             eventCount: 0,
             lastEventAt: null,
-            simulating: false,
-            lastBurst: null,
         });
 
         this._channels = [];
@@ -112,34 +109,6 @@ export class IcDemoDashboard extends Component {
             views: [[false, "form"]],
             target: "new",
         });
-    }
-
-    async simulate() {
-        if (this.state.simulating) {
-            return;
-        }
-        this.state.simulating = true;
-        try {
-            const scope = this.state.snapshot?.scope?.ids || [];
-            const result = await this.orm.call(
-                "ic.demo.dashboard.kpi",
-                "simulate_burst",
-                [],
-                { count: 20, company_ids: scope },
-            );
-            this.state.lastBurst = result;
-            this.notification.add(
-                `Burst: ${result.created} created, ${result.confirmed} confirmed in ${result.elapsed_ms} ms`,
-                { type: "success", sticky: false },
-            );
-        } catch (err) {
-            this.notification.add(
-                `Burst failed: ${err.message || err}`,
-                { type: "danger", sticky: true },
-            );
-        } finally {
-            this.state.simulating = false;
-        }
     }
 }
 
